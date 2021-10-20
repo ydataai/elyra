@@ -46,9 +46,9 @@ except ImportError:
 
 from elyra._version import __version__
 from elyra.kfp.operator import ExecuteFileOp
-from elyra.metadata.manager import MetadataManager
-from elyra.metadata.schema import SchemaFilter
-from elyra.pipeline.component_parser_kfp import KfpComponentParser
+from elyra.metadata.schemaspaces import RuntimeImages
+from elyra.metadata.schemaspaces import Runtimes
+from elyra.pipeline.kfp.component_parser_kfp import KfpComponentParser
 from elyra.pipeline.pipeline import GenericOperation
 from elyra.pipeline.pipeline import Operation
 from elyra.pipeline.processor import PipelineProcessor
@@ -84,22 +84,25 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         t0_all = time.time()
         timestamp = datetime.now().strftime("%m%d%H%M%S")
 
-        runtime_configuration = self._get_metadata_configuration(namespace=MetadataManager.NAMESPACE_RUNTIMES,
-                                                                 name=pipeline.runtime_config)
+        runtime_configuration = self._get_metadata_configuration(
+            schemaspace=Runtimes.RUNTIMES_SCHEMASPACE_ID,
+            name=pipeline.runtime_config
+        )
 
         api_endpoint = runtime_configuration.metadata['api_endpoint'].rstrip('/')
-        cos_endpoint = runtime_configuration.metadata['cos_endpoint']
-        cos_bucket = runtime_configuration.metadata['cos_bucket']
-
-        user_namespace = runtime_configuration.metadata.get('user_namespace')
-
-        # TODO: try to encapsulate the info below
         api_username = runtime_configuration.metadata.get('api_username')
         api_password = runtime_configuration.metadata.get('api_password')
-
+        user_namespace = runtime_configuration.metadata.get('user_namespace')
         engine = runtime_configuration.metadata.get('engine')
         if engine == 'Tekton' and not TektonClient:
-            raise ValueError('kfp-tekton not installed. Please install using elyra[kfp-tekton] to use Tekton engine.')
+            raise ValueError(
+                "Python package `kfp-tekton` is not installed. "
+                "Please install using `elyra[kfp-tekton]` to use Tekton engine."
+            )
+
+        # unpack Cloud Object Storage configs
+        cos_endpoint = runtime_configuration.metadata['cos_endpoint']
+        cos_bucket = runtime_configuration.metadata['cos_bucket']
 
         pipeline_name = pipeline.name
         try:
@@ -299,7 +302,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         # we're using its absolute form.
         absolute_pipeline_export_path = get_absolute_path(self.root_dir, pipeline_export_path)
 
-        runtime_configuration = self._get_metadata_configuration(namespace=MetadataManager.NAMESPACE_RUNTIMES,
+        runtime_configuration = self._get_metadata_configuration(schemaspace=Runtimes.RUNTIMES_SCHEMASPACE_ID,
                                                                  name=pipeline.runtime_config)
         api_endpoint = runtime_configuration.metadata['api_endpoint'].rstrip('/')
         namespace = runtime_configuration.metadata.get('user_namespace')
@@ -417,7 +420,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                      cos_directory=None,
                      export=False):
 
-        runtime_configuration = self._get_metadata_configuration(namespace=MetadataManager.NAMESPACE_RUNTIMES,
+        runtime_configuration = self._get_metadata_configuration(schemaspace=Runtimes.RUNTIMES_SCHEMASPACE_ID,
                                                                  name=pipeline.runtime_config)
 
         cos_endpoint = runtime_configuration.metadata['cos_endpoint']
@@ -506,7 +509,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                 if cos_secret and not export:
                     target_ops[operation.id].apply(use_aws_secret(cos_secret))
 
-                image_namespace = self._get_metadata_configuration(namespace=MetadataManager.NAMESPACE_RUNTIME_IMAGES)
+                image_namespace = self._get_metadata_configuration(schemaspace=RuntimeImages.RUNTIME_IMAGES_SCHEMASPACE_ID)
                 for image_instance in image_namespace:
                     if image_instance.metadata['image_name'] == operation.runtime_image and \
                             image_instance.metadata.get('pull_policy'):
@@ -533,15 +536,11 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
 
                     self.log.debug(f"Processing component parameter '{component_property.name}' "
                                    f"of type '{component_property.data_type}'")
-                    if component_property.data_type == "file":
-                        filename = get_absolute_path(get_expanded_path(self.root_dir), property_value)
-                        try:
-                            with open(filename) as f:
-                                operation.component_params[component_property.ref] = f.read()
-                        except Exception:
-                            # If file can't be found locally, assume a remote file location was entered.
-                            # This may cause the pipeline run to fail; the user must debug in this case.
-                            pass
+                    if component_property.data_type == "inputpath":
+                        output_node_id = property_value['value']
+                        output_node_parameter_key = property_value['option'].replace("elyra_output_", "")
+                        operation.component_params[component_property.ref] = \
+                            target_ops[output_node_id].outputs[output_node_parameter_key]
                     elif component_property.data_type == 'dictionary':
                         processed_value = self._process_dictionary_value(property_value)
                         operation.component_params[component_property.ref] = processed_value
@@ -566,9 +565,18 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
 
                 # Add factory function, which returns a ContainerOp task instance, to pipeline operation dict
                 try:
-                    # Remove inputs and outputs from params dict until support for data exchange is provided
-                    operation.component_params_as_dict.pop("inputs")
-                    operation.component_params_as_dict.pop("outputs")
+                    comp_spec_inputs = [inputs.name.lower().replace(" ", "_") for
+                                        inputs in factory_function.component_spec.inputs]
+
+                    # Remove inputs and outputs from params dict
+                    # TODO: need to have way to retrieve only required params
+                    parameter_removal_list = ["inputs", "outputs"]
+                    for component_param in operation.component_params_as_dict.keys():
+                        if component_param not in comp_spec_inputs:
+                            parameter_removal_list.append(component_param)
+
+                    for parameter in parameter_removal_list:
+                        operation.component_params_as_dict.pop(parameter, None)
 
                     # Create ContainerOp instance and assign appropriate user-provided name
                     container_op = factory_function(**operation.component_params_as_dict)
@@ -608,7 +616,7 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
         # Gather input for container image pull secrets in support of private container image registries
         # https://kubeflow-pipelines.readthedocs.io/en/latest/source/kfp.dsl.html#kfp.dsl.PipelineConf.set_image_pull_secrets
         #
-        image_namespace = self._get_metadata_configuration(namespace=MetadataManager.NAMESPACE_RUNTIME_IMAGES)
+        image_namespace = self._get_metadata_configuration(schemaspace=RuntimeImages.RUNTIME_IMAGES_SCHEMASPACE_ID)
 
         # iterate through pipeline operations and create list of Kubernetes secret names
         # that are associated with generic components
@@ -704,24 +712,3 @@ class KfpPipelineProcessorResponse(PipelineProcessorResponse):
     @property
     def type(self):
         return self._type
-
-
-class KfpSchemaFilter(SchemaFilter):
-    """
-    This class exists to ensure that the KFP schema's engine metadata
-    appropriately reflects what is installed on the system.
-    """
-
-    def post_load(self, name: str, schema_json: Dict) -> Dict:
-        """Ensure tekton packages are present and remove engine from schema if not."""
-
-        filtered_schema = super().post_load(name, schema_json)
-
-        # If TektonClient package is missing, navigate to the engine property
-        # and remove 'tekton' entry if present and return updated result.
-        if not TektonClient:
-            engine_enum: list = filtered_schema['properties']['metadata']['properties']['engine']['enum']
-            if 'Tekton' in engine_enum:
-                engine_enum.remove('Tekton')
-                filtered_schema['properties']['metadata']['properties']['engine']['enum'] = engine_enum
-        return filtered_schema
