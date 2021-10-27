@@ -46,7 +46,7 @@ runtime_extras = {
 runtime_extras['all'] = list(set(sum(runtime_extras.values(), [])))
 
 setup_args = dict(
-    name="elyra",
+    name="elyra-ydata",
     version=version_ns['__version__'],
     url="https://github.com/elyra-ai/elyra",
     description="Elyra provides AI Centric extensions to JupyterLab",

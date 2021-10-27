@@ -37,7 +37,7 @@ VERSION_REG_EX = r"(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(\.(?P<pre_rele
 
 DEFAULT_GIT_URL = 'git@github.com:elyra-ai/elyra.git'
 DEFAULT_EXTENSION_PACKAGE_GIT_URL = 'git@github.com:elyra-ai/elyra-package-template.git'
-DEFAULT_BUILD_DIR = 'build/release'
+DEFAULT_BUILD_DIR = ''
 
 
 class DependencyException(Exception):
@@ -172,8 +172,8 @@ def update_version_to_release() -> None:
             r"https://elyra.readthedocs.io/en/latest/",
             rf"https://elyra.readthedocs.io/en/v{new_version}/")
 
-        check_run(["lerna", "version", new_npm_version, "--no-git-tag-version", "--no-push", "--yes"], cwd=config.source_dir)
-        check_run(["yarn", "version", "--new-version", new_npm_version, "--no-git-tag-version"], cwd=config.source_dir)
+        # check_run(["lerna", "version", new_npm_version, "--no-git-tag-version", "--no-push", "--yes"], cwd=config.source_dir)
+        # check_run(["yarn", "version", "--new-version", new_npm_version, "--no-git-tag-version"], cwd=config.source_dir)
 
     except Exception as ex:
         raise UpdateVersionException from ex
@@ -248,8 +248,8 @@ def update_version_to_dev() -> None:
             rf"https://elyra.readthedocs.io/en/v{new_version}/",
             rf"https://elyra.readthedocs.io/en/latest/")
 
-        check_run(["lerna", "version", dev_npm_version, "--no-git-tag-version", "--no-push", "--yes"], cwd=config.source_dir)
-        check_run(["yarn", "version", "--new-version", dev_npm_version, "--no-git-tag-version"], cwd=config.source_dir)
+        # check_run(["lerna", "version", dev_npm_version, "--no-git-tag-version", "--no-push", "--yes"], cwd=config.source_dir)
+        # check_run(["yarn", "version", "--new-version", dev_npm_version, "--no-git-tag-version"], cwd=config.source_dir)
 
     except Exception as ex:
         raise UpdateVersionException from ex
@@ -302,13 +302,16 @@ def build_server():
     print("-----------------------------------------------------------------")
 
     # update project name
-    sed(_source('setup.py'), r'name="elyra"', 'name="elyra-server"')
+    sed(_source('setup.py'), r'name="elyra-ydata"', 'name="elyra-ydata-server"')
 
     # build server wheel
     check_run(["make", "build-server"], cwd=config.source_dir, capture_output=False)
 
+    # update project name
+    sed(_source('setup.py'), r'name="elyra-ydata-server"', 'name="elyra-ydata"')
+
     # revert project name
-    check_run(["git", "reset", "--hard"], cwd=config.source_dir, capture_output=False)
+    # check_run(["git", "reset", "--hard"], cwd=config.source_dir, capture_output=False)
 
     print('')
 
@@ -507,14 +510,14 @@ def prepare_release() -> None:
     print('')
 
     # clone repository
-    checkout_code()
+    # checkout_code()
     # generate changelog with new release list of commits
-    prepare_changelog()
+    # prepare_changelog()
     # Update to new release version
     update_version_to_release()
     # commit and tag
-    check_run(['git', 'commit', '-a', '-m', f'Release v{config.new_version}'], cwd=config.source_dir)
-    check_run(['git', 'tag', config.tag], cwd=config.source_dir)
+    # check_run(['git', 'commit', '-a', '-m', f'Release v{config.new_version}'], cwd=config.source_dir)
+    # check_run(['git', 'tag', config.tag], cwd=config.source_dir)
     # server-only wheel
     build_server()
     # build release wheel and npm artifacts
@@ -524,7 +527,7 @@ def prepare_release() -> None:
     # back to development
     update_version_to_dev()
     # commit
-    check_run(['git', 'commit', '-a', '-m', f'Prepare for next development iteration'], cwd=config.source_dir)
+    # check_run(['git', 'commit', '-a', '-m', f'Prepare for next development iteration'], cwd=config.source_dir)
     # prepare extensions
     prepare_extensions_release()
     # prepare runtime extsnsions
@@ -613,7 +616,7 @@ def initialize_config(args=None) -> SimpleNamespace:
         'git_user_email': check_output(['git', 'config', 'user.email']),
         'base_dir': os.getcwd(),
         'work_dir': os.path.join(os.getcwd(), DEFAULT_BUILD_DIR),
-        'source_dir': os.path.join(os.getcwd(), DEFAULT_BUILD_DIR, 'elyra'),
+        'source_dir': os.path.join(os.getcwd(), DEFAULT_BUILD_DIR),
         'old_version': elyra._version.__version__,
         'old_npm_version': f"{v['major']}.{v['minor']}.{v['patch']}-dev",
         'new_version': args.version if (not args.rc or not str.isdigit(args.rc)) and (not args.beta or not str.isdigit(args.beta)) else f'{args.version}rc{args.rc}' if args.rc else f'{args.version}b{args.beta}',

@@ -22,7 +22,7 @@
 
 SHELL:=/bin/bash
 
-TAG:=3.2.1
+TAG:=dev
 ELYRA_IMAGE=elyra/elyra:$(TAG)
 KF_NOTEBOOK_IMAGE=elyra/kf-notebook:$(TAG)
 
@@ -116,7 +116,7 @@ build-ui: # Build packages
 	yarn lerna run build --stream
 
 build-server: # Build backend
-	python setup.py bdist_wheel sdist
+	python3.7 setup.py bdist_wheel sdist
 
 build: build-server build-ui
 
@@ -129,14 +129,14 @@ build-jupyterlab:
 	jupyter lab build
 
 prepare-server:
-	pip install --upgrade pip wheel
+	pip3 install --upgrade pip wheel
 
 only-install-server: prepare-server build-server install-server-package
 
 install-server: lint-server only-install-server ## Build and install backend only
 
 install-server-package:
-	pip install --upgrade --upgrade-strategy $(UPGRADE_STRATEGY) --use-deprecated=legacy-resolver "$(shell find dist -name "elyra-*-py3-none-any.whl")[all]"
+	pip3 install --upgrade --upgrade-strategy $(UPGRADE_STRATEGY) --use-deprecated=legacy-resolver "$(shell find dist -name "elyra-*-py3-none-any.whl")[all]"
 
 install: install-server install-ui check-install ## Build and install
 

@@ -273,9 +273,12 @@ class KfpPipelineProcessor(RuntimePipelineProcessor):
                                    f"pipeline submitted: {api_endpoint}/#/runs/details/{run.id}",
                                    duration=(time.time() - t0_all))
 
+            pipelines_endpoint = os.environ['KF_PIPELINES_UI_ENDPOINT'].rstrip('/')
+            minio_endpoint = os.environ['MINIO_UI_ENDPOINT'].rstrip('/')
+
             return KfpPipelineProcessorResponse(
-                run_url=f'{api_endpoint}/#/runs/details/{run.id}',
-                object_storage_url=f'{cos_endpoint}',
+                run_url=f'{pipelines_endpoint}/#/runs/details/{run.id}',
+                object_storage_url=f'{minio_endpoint}/{cos_bucket}/{cos_directory}',
                 object_storage_path=f'/{cos_bucket}/{cos_directory}',
             )
 
